@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/marked@3.0.8/marked.min.js"></script>
+    <title>MA Digital Chat</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: transparent;
+        }
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .chat-header {
+            padding: 15px;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background: #f0f0f0;
+            margin-left: auto;
+            color: #333;
+        }
+        .bot-message {
+            background: #2563eb22;
+            color: #333;
+        }
+        .streaming-message {
+            background: #2563eb22;
+            color: #333;
+            position: relative;
+        }
+        .chat-input {
+            padding: 15px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+            background: white;
+        }
+        input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            outline: none;
+            font-size: 14px;
+        }
+        input:focus {
+            border-color: #2563eb;
+        }
+        button {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 1;
+            transform: none;
+        }
+ 
+    .loading-dots {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start; /* Align to the left */
+    gap: 4px;
+    padding: 5px 10px;
+}
+
+.dot-flashing {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #2563eb;
+    animation: dotFlashing 1s infinite ease-in-out;
+}
+.dot-flashing:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.dot-flashing:nth-child(3) {
+    animation-delay: 0.4s;
+}
+@keyframes dotFlashing {
+    0%, 80%, 100% {
+        opacity: 0.3;
+        transform: scale(0.9);
+    }
+    40% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+}
+
+        .dot-flashing::after {
+            content: '';
+            display: inline-block;
+            position: absolute;
+            top: 0;
+            width: 3px;
+            height: 4px;
+            border-radius: 5px;
+            color: #db152f;
+        }
+        .dot-flashing::before {
+            left: -12px;
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 0s;
+        }
+        .dot-flashing::after {
+            left: 12px;
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 1s;
+        }
+ 
+        .markdown-content p {
+            margin: 0.5em 0;
+        }
+        .markdown-content ul,
+        .markdown-content ol {
+            padding-left: 20px;
+            margin: 0.5em 0;
+        }
+        .markdown-content li {
+            margin-bottom: 0.25em;
+        }
+        .markdown-content strong {
+            font-weight: bold;
+        }
+        /* Style for links within markdown content specifically */
+        .markdown-content a {
+            color: #0056b3; /* Example link color, adjust as needed */
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">MA Digital Assistant</div>
+        <div class="chat-messages" id="messages"></div>
+        <div class="chat-input">
+            <input type="text" id="userInput" placeholder="Type your message...">
+            <button id="sendButton">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const messages = document.getElementById('messages');
+        const input = document.getElementById('userInput');
+        const sendButton = document.getElementById('sendButton');
+
+        let currentStreamingMessage = null;
+        let currentStreamingContainer = null;
+
+        // Helper function to set target for links
+        function setLinkTargets(containerElement) {
+            const links = containerElement.querySelectorAll('a');
+            links.forEach(link => {
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+            });
+        }
+
+        function addMessage(type, content) {
+            const div = document.createElement('div');
+            div.className = `message ${type}-message`;
+
+            if (type === 'bot') {
+                // Create container for parsed markdown
+                const contentContainer = document.createElement('div');
+                contentContainer.className = 'markdown-content';
+
+                // Check if marked.js is available
+                if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                    // Set markdown options
+                    marked.setOptions({
+                        breaks: true,
+                        gfm: true,
+                        mangle: false,
+                        headerIds: false
+                    });
+
+                    // Parse markdown to HTML
+                    const htmlContent = marked.parse(content);
+                    contentContainer.innerHTML = htmlContent;
+                } else {
+                    console.warn("marked.js not available - using plain text");
+                    contentContainer.textContent = content;
+                }
+
+                div.appendChild(contentContainer);
+                // Set link targets for non-streaming bot messages
+                setLinkTargets(contentContainer);
+            } else {
+                div.textContent = content;
+            }
+
+            messages.appendChild(div);
+            scrollToBottom();
+            return div;
+        }
+
+        function startStreamingMessage() {
+            const div = document.createElement('div');
+            div.className = 'message streaming-message';
+
+            const contentContainer = document.createElement('div');
+            contentContainer.className = 'markdown-content';
+
+            // Add loading dots
+            const loadingDots = document.createElement('div');
+            loadingDots.className = 'loading-dots';
+
+            for (let i = 0; i < 3; i++) {
+                const dot = document.createElement('div');
+                dot.className = 'dot-flashing';
+                loadingDots.appendChild(dot);
+            }
+
+            contentContainer.appendChild(loadingDots);
+            div.appendChild(contentContainer);
+            messages.appendChild(div);
+
+            currentStreamingMessage = '';
+            currentStreamingContainer = contentContainer;
+
+            scrollToBottom();
+            return div;
+        }
+
+        function appendToStreamingMessage(token) {
+            if (!currentStreamingContainer) return;
+
+            currentStreamingMessage += token;
+
+            // Remove existing loading dots
+            const existingDots = currentStreamingContainer.querySelector('.loading-dots');
+            if (existingDots) {
+                existingDots.remove();
+            }
+
+            // Parse and display updated content
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true,
+                    mangle: false,
+                    headerIds: false
+                });
+
+                const htmlContent = marked.parse(currentStreamingMessage);
+                currentStreamingContainer.innerHTML = htmlContent;
+            } else {
+                currentStreamingContainer.textContent = currentStreamingMessage;
+            }
+            
+            // Set link targets as content updates during streaming
+            setLinkTargets(currentStreamingContainer);
+
+            scrollToBottom();
+        }
+
+        function finishStreamingMessage() {
+            if (currentStreamingContainer) {
+                // Change class from streaming to bot message
+                const messageDiv = currentStreamingContainer.parentElement;
+                if (messageDiv) { 
+                    messageDiv.className = 'message bot-message';
+                }
+                // Final pass to ensure all links are set correctly
+                setLinkTargets(currentStreamingContainer); 
+            }
+
+            currentStreamingMessage = null;
+            currentStreamingContainer = null;
+        }
+
+        function scrollToBottom() {
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const message = input.value.trim();
+            if (!message) return;
+
+            // Add user message to chat
+            addMessage('user', message);
+            input.value = '';
+
+            // Disable input while processing
+            input.disabled = true;
+            sendButton.disabled = true;
+
+            // Start streaming message
+            startStreamingMessage();
+
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'text/plain' // Or the appropriate Accept header for your streaming response
+                    },
+                    body: JSON.stringify({ query: message })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n');
+
+                    for (let line of lines) {
+                        if (line.startsWith('data: ')) { // Assuming SSE-like format for structured stream data
+                            try {
+                                const data = JSON.parse(line.substring(6));
+
+                                switch (data.type) {
+                                    case 'start':
+                                        // Stream started
+                                        break;
+                                    case 'token':
+                                        appendToStreamingMessage(data.content);
+                                        break;
+                                    case 'end':
+                                        // The 'done' flag from reader.read() will handle the end of stream.
+                                        break;
+                                    case 'error':
+                                        finishStreamingMessage(); // Stop current streaming display
+                                        addMessage('bot', `Error: ${data.message}`);
+                                        break;
+                                }
+                            } catch (e) {
+                                // Handle non-JSON data after "data: " or if parsing fails (simple fallback)
+                                const content = line.substring(6).trim();
+                                if (content) { 
+                                    appendToStreamingMessage(content);
+                                }
+                            }
+                        } else if (line.trim()) { 
+                            // If the line is not empty and doesn't start with "data: ", treat as plain token
+                            // This part is crucial if your backend streams plain text tokens without "data: " prefix.
+                            appendToStreamingMessage(line);
+                        }
+                    }
+                }
+                // Ensure finishStreamingMessage is called after the loop if not explicitly ended by an 'end' token
+                // and the stream just finishes by `done` being true.
+                finishStreamingMessage();
+
+            } catch (error) {
+                console.error('Error:', error);
+                finishStreamingMessage();
+                addMessage('bot', 'Sorry, something went wrong. Please try again.');
+            } finally {
+                // Re-enable input
+                input.disabled = false;
+                sendButton.disabled = false;
+                input.focus();
+            }
+        }
+
+        // Event listeners
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+        
+        sendButton.addEventListener('click', sendMessage);
+
+        // Focus input on load
+        window.addEventListener('load', () => {
+            input.focus();
+            // The welcome message is a non-streaming bot message
+            addMessage('bot', 'Hello! How can I help you today?');
+        });
+    </script>
+</body>
+</html>
